@@ -3,21 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="description" content="목적지를 넣으면 일요일·공휴일에 미터가 쉬는 도쿄 경시청 녹색 구간 중 가장 가까운 곳과 구글맵 경로·거리뷰 링크를 보여 줍니다.">
+<title>Green Line Tokyo</title>
+<meta name="description" content="목적지를 넣으면 일요일·공휴일에 미터가 쉬는 도쿄 경시청 녹색 구간 중 가까운 곳과, 내 위치→주차→목적지 경로·거리를 지도로 보여 줍니다.">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#141517" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-title" content="Green Line">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 46 46'%3E%3Crect width='46' height='46' fill='%23111'/%3E%3Ccircle cx='16' cy='16' r='10' fill='%23d7301b'/%3E%3Crect x='4' y='33' width='38' height='7' fill='%233cb043'/%3E%3Cpolygon points='30,6 42,26 30,26' fill='%23f6c500'/%3E%3C/svg%3E">
-<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
-<title>Green Line Tokyo</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
-/* Layout: Bauhaus grid — black rules, primary fields, circle = destination, line = parking zone.
-   Mobile: one column (day → search → map → list). Desktop: list left, map right (sticky). */
+/* Layout: Bauhaus grid — black rules, primary fields. Circle = place, square = parking, line = zone.
+   Phone: day → search → map → trip → candidates. Desktop: panel left, map right (sticky). */
 :root {
+  color-scheme: light;
   --paper: #ffffff;
   --ink: #111111;
   --mute: #5b5f66;
@@ -27,51 +28,56 @@
   --blue: #1f4fb4;
   --yellow: #f6c500;
   --green: #1f8f3a;
-  --green-line: #3cb043;
-  --on-color: #ffffff;
+  --green-line: #2fa83a;
   --on-yellow: #111111;
+  --tile-filter: grayscale(.75) brightness(1.03) contrast(.95);
   --font-display: "Jost", "Noto Sans KR", system-ui, sans-serif;
   --font-body: "Noto Sans KR", "Hiragino Sans", "Apple SD Gothic Neo", "Yu Gothic", system-ui, sans-serif;
   --bw: 3px;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --paper: #141517; --ink: #f1f1ef; --mute: #a3a8b0; --rule: #f1f1ef; --soft: #24262a;
     --red: #ff5b3f; --blue: #6b93ee; --yellow: #ffd21f; --green: #54cf66; --green-line: #4fd15f;
-    --on-color: #111111; --on-yellow: #111111; color-scheme: dark;
+    --tile-filter: invert(1) hue-rotate(180deg) brightness(.82) contrast(.9) grayscale(.4);
+    color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --paper: #141517; --ink: #f1f1ef; --mute: #a3a8b0; --rule: #f1f1ef; --soft: #24262a;
   --red: #ff5b3f; --blue: #6b93ee; --yellow: #ffd21f; --green: #54cf66; --green-line: #4fd15f;
-  --on-color: #111111; --on-yellow: #111111; color-scheme: dark;
+  --tile-filter: invert(1) hue-rotate(180deg) brightness(.82) contrast(.9) grayscale(.4);
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
-body { background: var(--paper); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; }
 a { color: inherit; }
+button { font-family: inherit; }
 :focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
-.wrap { max-width: 1180px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 
 /* Header */
 .mast { border-bottom: var(--bw) solid var(--rule); }
-.mast .wrap { display: flex; align-items: center; gap: 14px; padding-block: 14px; }
-.mark { flex: none; width: 46px; height: 46px; }
+.mast .wrap { display: flex; align-items: center; gap: 14px; padding-block: 12px; }
+.mark { flex: none; width: 42px; height: 42px; }
 .brand { min-width: 0; }
-.brand h1 { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 24px; letter-spacing: .06em; line-height: 1.05; text-transform: uppercase; }
+.brand h1 { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 23px; letter-spacing: .06em; line-height: 1.05; text-transform: uppercase; }
 .brand p { margin: 2px 0 0; color: var(--mute); font-size: 13px; }
 
 /* Grid */
-.grid { display: grid; grid-template-columns: 1fr; gap: 0; }
-@media (min-width: 900px) {
-  .grid { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 28px; padding-block: 20px; }
+.grid { display: grid; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 960px) {
+  .grid { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 28px; padding-block: 20px; }
   .side-map { position: sticky; top: 16px; align-self: start; }
 }
 .col { min-width: 0; display: flex; flex-direction: column; gap: 16px; padding-block: 16px; }
-@media (min-width: 900px) { .col { padding-block: 0; } }
-
+@media (min-width: 960px) { .col { padding-block: 0; } }
 .label { font-family: var(--font-display); font-weight: 500; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--mute); margin: 0 0 6px; }
 
-/* Day strip */
+/* Day */
 .day { display: grid; grid-template-columns: minmax(0, 1fr) auto; border: var(--bw) solid var(--rule); }
 .day input { font: 500 16px/1 var(--font-display); font-variant-numeric: tabular-nums; border: 0; border-left: var(--bw) solid var(--rule); background: var(--paper); color: var(--ink); padding: 0 10px; min-height: 52px; min-width: 0; width: 160px; }
 @media (max-width: 520px) {
@@ -96,97 +102,132 @@ a { color: inherit; }
 
 /* Search */
 .search { position: relative; }
-.field { display: grid; grid-template-columns: 1fr auto; border: var(--bw) solid var(--rule); background: var(--paper); }
+.field { display: grid; grid-template-columns: minmax(0, 1fr) auto; border: var(--bw) solid var(--rule); background: var(--paper); }
 .field input { min-width: 0; border: 0; background: transparent; color: var(--ink); font: 500 16px/1.3 var(--font-body); padding: 12px; min-height: 52px; }
 .field input::placeholder { color: var(--mute); }
-.field button { border: 0; border-left: var(--bw) solid var(--rule); background: var(--red); color: var(--on-color); width: 56px; cursor: pointer; display: grid; place-items: center; }
+.field button { border: 0; border-left: var(--bw) solid var(--rule); background: var(--red); color: #fff; width: 56px; cursor: pointer; display: grid; place-items: center; }
 .hint { margin: 6px 0 0; font-size: 13px; color: var(--mute); }
 .msg { margin: 6px 0 0; font-size: 13px; font-weight: 500; color: var(--red); }
-.sugg { position: absolute; left: 0; right: 0; top: calc(100% - var(--bw)); z-index: 20; margin: 0; padding: 0; list-style: none; background: var(--paper); border: var(--bw) solid var(--rule); max-height: 330px; overflow-y: auto; }
-.sugg li { display: grid; grid-template-columns: 18px 1fr; gap: 10px; align-items: center; padding: 10px 12px; min-height: 48px; cursor: pointer; border-top: 1px solid var(--soft); }
+.fieldwrap { position: relative; }
+.sugg { position: absolute; left: 0; right: 0; top: calc(100% - var(--bw)); z-index: 1200; margin: 0; padding: 0; list-style: none; background: var(--paper); border: var(--bw) solid var(--rule); max-height: 340px; overflow-y: auto; }
+.sugg li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 10px; align-items: center; padding: 10px 12px; min-height: 48px; cursor: pointer; border-top: 1px solid var(--soft); }
 .sugg li:first-child { border-top: 0; }
 .sugg li[aria-selected="true"], .sugg li:hover { background: var(--soft); }
 .sugg .ic { width: 12px; height: 12px; background: var(--ink); justify-self: center; }
 .sugg .ic.p { border-radius: 50%; background: var(--blue); }
 .sugg .ic.c { background: var(--red); transform: rotate(45deg); }
+.sugg .ic.w { background: transparent; border: 3px solid var(--ink); border-radius: 50%; }
 .sugg b { display: block; font-weight: 700; font-size: 15px; line-height: 1.3; }
 .sugg small { display: block; color: var(--mute); font-size: 12px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Origin row */
+.origin { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.origin .btn { min-height: 40px; font-size: 13.5px; }
+.origin span { font-size: 13px; color: var(--mute); min-width: 0; }
+.dot-me { width: 14px; height: 14px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 3px var(--paper), 0 0 0 5px var(--blue); flex: none; }
+
 /* Map */
-.mapbox { position: relative; border: var(--bw) solid var(--rule); background: var(--paper); aspect-ratio: 1 / 1; max-width: 100%; overflow: hidden; user-select: none; -webkit-user-select: none; }
-@media (min-width: 900px) { .mapbox { aspect-ratio: auto; height: min(78vh, 720px); } }
-.mapbox svg { display: block; width: 100%; height: 100%; }
-@media (pointer: fine) { .mapbox svg { cursor: grab; } }
-.mapbox svg.drag { cursor: grabbing; }
-.zoom { position: absolute; right: 10px; top: 10px; display: flex; flex-direction: column; }
-.zoom button { display: grid; place-items: center; width: 44px; height: 44px; border: var(--bw) solid var(--rule); background: var(--paper); color: var(--ink); font: 500 24px/1 var(--font-display); cursor: pointer; }
-.zoom button + button { border-top: 0; }
-.zoom button:hover { background: var(--soft); }
+.mapbox { position: relative; border: var(--bw) solid var(--rule); height: min(62vh, 460px); min-height: 300px; }
+@media (min-width: 960px) { .mapbox { height: min(80vh, 760px); } }
+#map { position: absolute; inset: 0; background: var(--soft); }
+.leaflet-container { font-family: var(--font-body); background: var(--soft); }
+.leaflet-tile-pane { filter: var(--tile-filter); }
+.leaflet-bar { border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
+.leaflet-bar a, .leaflet-bar button.fit { width: 44px !important; height: 44px !important; line-height: 40px !important; border-radius: 0 !important; border: var(--bw) solid var(--rule) !important; background: var(--paper) !important; color: var(--ink) !important; font: 500 22px/40px var(--font-display) !important; display: grid; place-items: center; }
+.leaflet-bar a + a, .leaflet-bar a + button.fit { border-top: 0 !important; }
+.leaflet-bar a:hover, .leaflet-bar button.fit:hover { background: var(--soft) !important; }
+.leaflet-bar button.fit { cursor: pointer; padding: 0; }
+.leaflet-control-attribution { background: color-mix(in srgb, var(--paper) 85%, transparent) !important; color: var(--mute) !important; font-size: 10.5px !important; }
+.leaflet-control-attribution a { color: var(--ink) !important; }
+.mk-rank { width: 26px; height: 26px; border-radius: 50%; background: var(--ink); color: var(--paper); border: 2px solid var(--paper); display: grid; place-items: center; font: 700 13px/1 var(--font-display); }
+.mk-p { width: 34px; height: 34px; background: var(--green); color: #fff; border: 3px solid var(--ink); display: grid; place-items: center; font: 700 19px/1 var(--font-display); box-shadow: 0 0 0 3px var(--yellow); }
+.mk-dest { width: 24px; height: 24px; border-radius: 50%; background: var(--red); border: 3px solid var(--paper); box-shadow: 0 0 0 2px var(--ink); }
+.mk-me { width: 18px; height: 18px; border-radius: 50%; background: var(--blue); border: 3px solid #fff; box-shadow: 0 0 0 2px var(--blue); }
+.leaflet-tooltip.tip-dest { background: var(--paper); color: var(--red); border: 2px solid var(--ink); border-radius: 0; box-shadow: none; font-weight: 700; font-size: 13px; padding: 2px 6px; }
+.leaflet-tooltip.tip-dest::before { display: none; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-size: 12.5px; color: var(--mute); }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
-.legend i { display: inline-block; }
+.legend i { display: inline-block; flex: none; }
 .lg-free { width: 22px; height: 5px; background: var(--green-line); }
 .lg-paid { width: 22px; height: 2px; background: var(--blue); }
-.lg-dest { width: 12px; height: 12px; border-radius: 50%; background: var(--red); }
-.lg-st { width: 8px; height: 8px; background: var(--ink); }
+.lg-drive { width: 22px; height: 4px; background: var(--ink); }
+.lg-walk { width: 22px; height: 0; border-top: 3px dashed var(--red); }
 
-/* Results */
+/* Trip card */
+.trip { border: var(--bw) solid var(--rule); }
+.trip-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-bottom: var(--bw) solid var(--rule); }
+.trip-head h2 { margin: 0; font-size: 16px; line-height: 1.3; }
+.trip-head .nav { display: flex; }
+.trip-head .nav button { width: 40px; height: 40px; border: var(--bw) solid var(--rule); background: var(--paper); color: var(--ink); cursor: pointer; display: grid; place-items: center; }
+.trip-head .nav button + button { border-left: 0; }
+.trip-head .nav button:disabled { opacity: .35; cursor: default; }
+.steps { list-style: none; margin: 0; padding: 14px 12px 6px; }
+.stop { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; align-items: start; }
+.stop .node { width: 20px; height: 20px; margin: 2px 4px 0; justify-self: center; }
+.node.me { border-radius: 50%; background: var(--blue); }
+.node.park { width: 26px; height: 26px; margin: 0; background: var(--green); border: 3px solid var(--ink); color: #fff; display: grid; place-items: center; font: 700 14px/1 var(--font-display); }
+.node.dest { border-radius: 50%; background: var(--red); }
+.stop b { display: block; font-size: 15px; line-height: 1.35; }
+.stop small { display: block; color: var(--mute); font-size: 12.5px; line-height: 1.4; }
+.leg { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; padding: 6px 0; }
+.leg .rail { justify-self: center; width: 4px; background: var(--ink); min-height: 74px; }
+.leg.walk .rail { width: 0; border-left: 4px dashed var(--red); background: none; }
+.leg .what { display: flex; flex-direction: column; gap: 6px; padding-block: 4px; min-width: 0; }
+.leg .mode { font-size: 12px; font-weight: 700; letter-spacing: .08em; color: var(--mute); }
+.leg .num { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.leg .num b { font: 700 26px/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.leg .num span { font-size: 14px; }
+.leg .note { font-size: 12px; color: var(--mute); }
+.leg .btn { align-self: flex-start; min-height: 42px; font-size: 13.5px; }
+.park-acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.park-acts .btn { min-height: 38px; font-size: 13px; padding: 0 10px; border-width: 2px; }
+
+/* Candidate list */
 .sum { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-bottom: var(--bw) solid var(--rule); padding-bottom: 8px; }
-.sum h2 { margin: 0; font-size: 18px; line-height: 1.3; text-wrap: balance; }
+.sum h2 { margin: 0; font-size: 17px; line-height: 1.3; }
 .sum span { color: var(--mute); font-size: 13px; }
-.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.item { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--soft); }
-.item.sel { background: linear-gradient(90deg, var(--yellow) 0 6px, transparent 6px); }
-.rank { width: 34px; height: 34px; border-radius: 50%; background: var(--ink); color: var(--paper); display: grid; place-items: center; font: 700 16px/1 var(--font-display); font-variant-numeric: tabular-nums; cursor: pointer; border: 0; margin-left: 6px; }
-.item.sel .rank { background: var(--yellow); color: var(--on-yellow); box-shadow: 0 0 0 2px var(--ink); }
-.dist { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.dist b { font: 700 26px/1 var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
-.dist span { font-size: 14px; color: var(--ink); }
-.meta { margin: 4px 0 0; font-size: 13px; color: var(--mute); }
-.tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.tag { font-size: 12px; font-weight: 700; padding: 2px 8px; border: 2px solid var(--ink); line-height: 1.4; }
-.tag.g { border-color: var(--green); color: var(--green); }
-.acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
-.acts .btn.primary { grid-column: 1 / -1; }
-.acts .btn { font-size: 13.5px; padding: 0 8px; }
-.empty { padding: 18px 0; color: var(--mute); }
-.more { align-self: flex-start; }
+.list { list-style: none; margin: 0; padding: 0; }
+.row { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 10px; align-items: center; width: 100%; padding: 10px 0; border: 0; border-bottom: 1px solid var(--soft); background: none; color: var(--ink); text-align: left; cursor: pointer; font: inherit; }
+.row:hover { background: var(--soft); }
+.row .rank { width: 30px; height: 30px; margin-left: 6px; border-radius: 50%; background: var(--ink); color: var(--paper); display: grid; place-items: center; font: 700 14px/1 var(--font-display); }
+.row[aria-current="true"] { background: linear-gradient(90deg, var(--yellow) 0 6px, transparent 6px); }
+.row[aria-current="true"] .rank { background: var(--yellow); color: var(--on-yellow); box-shadow: 0 0 0 2px var(--ink); }
+.row b { font: 700 18px/1.2 var(--font-display); font-variant-numeric: tabular-nums; }
+.row .sub { font-size: 13px; }
+.row small { display: block; color: var(--mute); font-size: 12px; line-height: 1.4; }
+.empty { padding: 16px 0; color: var(--mute); }
+.more { margin-top: 8px; }
 
-/* Notice (the one yellow box) */
+/* The one yellow box */
 .notice { background: var(--yellow); color: var(--on-yellow); padding: 14px 16px; border: var(--bw) solid var(--rule); }
 .notice h3 { margin: 0 0 6px; font-size: 15px; }
 .notice ol { margin: 0; padding-left: 20px; font-size: 13.5px; line-height: 1.6; }
 .notice li + li { margin-top: 4px; }
-.notice .ja { font-weight: 700; }
 
 footer { border-top: var(--bw) solid var(--rule); margin-top: 8px; }
 footer .wrap { padding-block: 14px 24px; font-size: 12.5px; color: var(--mute); display: flex; flex-direction: column; gap: 4px; }
 footer a { text-underline-offset: 2px; }
-
-@media (prefers-reduced-motion: no-preference) {
-  .item { transition: background-color .2s; }
-}
+@media (prefers-reduced-motion: no-preference) { .row { transition: background-color .2s; } }
 </style>
-
 </head>
 <body>
 <header class="mast">
   <div class="wrap">
     <svg class="mark" viewBox="0 0 46 46" aria-hidden="true">
-      <rect x="0" y="0" width="46" height="46" fill="var(--ink)"/>
-      <circle cx="16" cy="16" r="10" fill="var(--red)"/>
-      <rect x="4" y="33" width="38" height="7" fill="var(--green-line)"/>
-      <polygon points="30,6 42,26 30,26" fill="var(--yellow)"/>
+      <rect x="0" y="0" width="46" height="46" fill="#111111"/>
+      <circle cx="16" cy="16" r="10" fill="#d7301b"/>
+      <rect x="4" y="33" width="38" height="7" fill="#3cb043"/>
+      <polygon points="30,6 42,26 30,26" fill="#f6c500"/>
     </svg>
     <div class="brand">
       <h1>Green Line Tokyo</h1>
-      <p id="tagline">일요일·공휴일에 미터가 쉬는 도쿄 노상주차 구간 찾기</p>
+      <p>일요일·공휴일에 미터가 쉬는 도쿄 노상주차 구간 찾기</p>
     </div>
   </div>
 </header>
 
 <main class="wrap grid">
-  <section class="col" aria-label="검색과 결과">
+  <section class="col" aria-label="검색과 경로">
     <div>
       <p class="label" id="dayLabel">언제 가세요?</p>
       <div class="day">
@@ -201,19 +242,37 @@ footer a { text-underline-offset: 2px; }
 
     <div class="search">
       <p class="label"><label for="q">어디로 가세요?</label></p>
+      <div class="fieldwrap">
       <form class="field" id="form" role="search" autocomplete="off">
-        <input id="q" type="text" inputmode="search" enterkeyhint="search" placeholder="역·명소 이름, 좌표, 구글맵 링크"
+        <input id="q" type="text" inputmode="search" enterkeyhint="search" placeholder="역·명소·주소, 좌표, 구글맵 링크"
                role="combobox" aria-expanded="false" aria-controls="sugg" aria-autocomplete="list" spellcheck="false">
         <button type="submit" aria-label="찾기">
           <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><circle cx="9" cy="9" r="6.5" fill="none" stroke="currentColor" stroke-width="3"/><path d="M14 14l6 6" stroke="currentColor" stroke-width="3"/></svg>
         </button>
       </form>
       <ul class="sugg" id="sugg" role="listbox" hidden></ul>
+      </div>
       <p class="msg" id="msg" hidden></p>
-      <p class="hint" id="hint">예: 시부야, 긴자역, 도쿄타워, 浅草寺, Roppongi, 35.6586, 139.7454</p>
+      <p class="hint" id="hint">예: 시부야, 도쿄타워, 浅草寺, 銀座4丁目, 35.6586, 139.7454 · 지도를 길게 눌러도 됩니다</p>
     </div>
 
-    <div class="mobile-map" id="mobileMapSlot"></div>
+    <div class="origin">
+      <button class="btn" id="geoBtn" type="button"><i class="dot-me"></i><span id="geoBtnText">내 위치에서 출발</span></button>
+      <span id="geoState">켜면 내 위치→주차 구간 운전 거리를 계산합니다.</span>
+    </div>
+
+    <div id="mobileMapSlot"></div>
+
+    <article class="trip" id="trip" aria-live="polite">
+      <div class="trip-head">
+        <h2 id="tripTitle">경로</h2>
+        <div class="nav">
+          <button type="button" id="prev" aria-label="이전 후보"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><polygon points="10,1 3,7 10,13" fill="currentColor"/></svg></button>
+          <button type="button" id="next" aria-label="다음 후보"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><polygon points="4,1 11,7 4,13" fill="currentColor"/></svg></button>
+        </div>
+      </div>
+      <ol class="steps" id="steps"></ol>
+    </article>
 
     <div>
       <div class="sum">
@@ -228,7 +287,7 @@ footer a { text-underline-offset: 2px; }
       <h3 id="nTitle">세우기 전에 표지를 보세요</h3>
       <ol>
         <li>녹색 구간은 경시청 지도에서 <b>일요일·공휴일엔 미터를 쓰지 않는</b> 구간입니다. 미터가 쉬는 날 주차가 허용되는지는 현장 표지가 정합니다.</li>
-        <li><span class="ja">駐車禁止</span>(주차금지) 표지가 함께 붙어 있으면 그 시간에는 세울 수 없습니다. ‘표지 거리뷰’로 미리 확인하세요(촬영 시점이 오래됐을 수 있습니다).</li>
+        <li><b>駐車禁止</b>(주차금지) 표지가 함께 붙어 있으면 그 시간에는 세울 수 없습니다. ‘표지 거리뷰’로 미리 확인하세요(촬영 시점이 오래됐을 수 있습니다).</li>
         <li>같은 자리에 낮 12시간, 밤 8시간 넘게 세우면 차고법 위반입니다. 공사 등으로 쉬는 미터도 있습니다.</li>
       </ol>
     </aside>
@@ -236,19 +295,12 @@ footer a { text-underline-offset: 2px; }
 
   <section class="col side-map" id="mapCol" aria-label="지도">
     <div id="mapHome">
-      <div class="mapbox" id="mapbox">
-        <svg id="map" role="img" aria-label="목적지 주변 주차 구간 지도"></svg>
-        <div class="zoom">
-          <button type="button" id="zin" aria-label="확대">+</button>
-          <button type="button" id="zout" aria-label="축소">−</button>
-          <button type="button" id="zfit" aria-label="목적지와 후보가 보이게 맞추기"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="2.5"/><circle cx="10" cy="10" r="2" fill="currentColor"/></svg></button>
-        </div>
-      </div>
+      <div class="mapbox"><div id="map" aria-label="목적지 주변 주차 구간 지도"></div></div>
       <div class="legend">
-        <span><i class="lg-dest"></i>목적지</span>
         <span><i class="lg-free"></i>이 날 미터 쉼</span>
         <span><i class="lg-paid"></i>이 날 유료</span>
-        <span><i class="lg-st"></i>역</span>
+        <span><i class="lg-drive"></i>운전</span>
+        <span><i class="lg-walk"></i>도보</span>
       </div>
     </div>
   </section>
@@ -257,17 +309,22 @@ footer a { text-underline-offset: 2px; }
 <footer>
   <div class="wrap">
     <span>주차 구간: 경시청 <a href="https://parking-meter.jp/" target="_blank" rel="noopener noreferrer">時間制限駐車区間 案内地図</a> 공개 데이터(2026-11-23 받음, 752개 구간). 규칙: 경시청 <a href="https://www.keishicho.metro.tokyo.lg.jp/kotsu/hairyo/tadashi_pking/shiyohoho.html" target="_blank" rel="noopener noreferrer">사용 방법과 주의사항</a>·<a href="https://www.keishicho.metro.tokyo.lg.jp/faq/koutuanzen/parkingmeter.html" target="_blank" rel="noopener noreferrer">자주 묻는 질문</a>.</span>
-    <span>역·명소 이름과 위치: Wikidata(CC0). 거리는 직선거리, 도보 시간은 어림값입니다.</span>
+    <span>지도: 국토지리원 <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener noreferrer">地理院タイル</a>. 경로: <a href="https://routing.openstreetmap.de/" target="_blank" rel="noopener noreferrer">FOSSGIS OSRM</a>, 데이터 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> 기여자. 장소 검색: Wikidata(CC0), Nominatim, 국토지리원.</span>
+    <span>운전 시간은 막히지 않을 때 기준입니다. 실제 안내는 구글맵 버튼으로 확인하세요.</span>
   </div>
 </footer>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 (() => {
   'use strict';
   const $ = (id) => document.getElementById(id);
   const DEFAULT_PLACE = { label: '긴자역', sub: '예시 목적지', lat: 35.67123, lng: 139.765 };
   const STORE_KEY = 'glt.place.v1';
+  const GEO_KEY = 'glt.geo.v1';
   const PAGE = 5;
+  const ROUTER = 'https://routing.openstreetmap.de/';
+  const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   /* ---------- Japanese public holidays (祝日法, valid 2007–2099) ---------- */
   const pad = (n) => String(n).padStart(2, '0');
@@ -300,15 +357,13 @@ footer a { text-underline-offset: 2px; }
     add(11, 3, '문화의 날');
     add(11, 23, '근로감사의 날');
     const all = new Map(base);
-    // 国民の休日: a weekday sandwiched between two holidays
-    for (const key of base.keys()) {
+    for (const key of base.keys()) { // 国民の休日
       const d = new Date(key + 'T00:00:00Z');
       const mid = new Date(d.getTime() + 86400000);
       const next = new Date(d.getTime() + 2 * 86400000);
       if (!base.has(ymd(mid)) && base.has(ymd(next)) && mid.getUTCDay() !== 0) all.set(ymd(mid), '국민의 휴일');
     }
-    // 振替休日: a holiday on Sunday moves to the next non-holiday day
-    for (const key of base.keys()) {
+    for (const key of base.keys()) { // 振替休日
       const d = new Date(key + 'T00:00:00Z');
       if (d.getUTCDay() !== 0) continue;
       let n = new Date(d.getTime() + 86400000);
@@ -319,7 +374,6 @@ footer a { text-underline-offset: 2px; }
     return all;
   }
   const WD = ['일', '월', '화', '수', '목', '금', '토'];
-  // kind: 'newyear' all zones idle · 'holiday' green idle · 'sat' only "土・日曜、休日を除く" idle · 'weekday' none
   function dayInfo(s) {
     const d = new Date(s + 'T00:00:00Z');
     const y = d.getUTCFullYear(), m = d.getUTCMonth() + 1, dd = d.getUTCDate(), w = d.getUTCDay();
@@ -349,6 +403,7 @@ footer a { text-underline-offset: 2px; }
   /* ---------- geometry (local metres) ---------- */
   const M_LAT = 110950;
   const mLng = (lat) => 111320 * Math.cos(lat * Math.PI / 180);
+  const straight = (a, b) => Math.hypot((a.lng - b.lng) * mLng((a.lat + b.lat) / 2), (a.lat - b.lat) * M_LAT);
   function nearestOnZone(z, p) {
     const kx = mLng(p.lat);
     let best = { d: Infinity };
@@ -367,33 +422,46 @@ footer a { text-underline-offset: 2px; }
     }
     best.lat = p.lat + best.y / M_LAT;
     best.lng = p.lng + best.x / kx;
-    // street-view heading: along the street
     best.heading = Math.round(((Math.atan2(best.hx, best.hy) * 180 / Math.PI) + 360) % 360);
     return best;
   }
   function zoneLength(z) {
     let s = 0;
     for (const line of z.l) for (let i = 1; i < line.length; i++) {
-      const kx = mLng(line[i][1]);
-      s += Math.hypot((line[i][0] - line[i - 1][0]) * kx, (line[i][1] - line[i - 1][1]) * M_LAT);
+      s += Math.hypot((line[i][0] - line[i - 1][0]) * mLng(line[i][1]), (line[i][1] - line[i - 1][1]) * M_LAT);
     }
     return s;
   }
   const DIRS = ['북', '북동', '동', '남동', '남', '남서', '서', '북서'];
   const dirText = (x, y) => DIRS[Math.round(((Math.atan2(x, y) * 180 / Math.PI + 360) % 360) / 45) % 8];
-  const fmtDist = (m) => m < 1000 ? String(Math.round(m / 10) * 10) : (m / 1000).toFixed(1);
-  const fmtUnit = (m) => m < 1000 ? 'm' : 'km';
-  const walkMin = (m) => Math.max(1, Math.ceil(m * 1.3 / 80));
+  const fmtD = (m) => m < 1000 ? (Math.round(m / 10) * 10) + ' m' : (m < 10000 ? (m / 1000).toFixed(1) : Math.round(m / 1000)) + ' km';
+  const fmtMin = (s) => { const m = Math.max(1, Math.round(s / 60)); return m < 60 ? m + '분' : Math.floor(m / 60) + '시간 ' + (m % 60) + '분'; };
+  const walkSecGuess = (m) => m * 1.3 / 80 * 60;
 
   /* ---------- Google Maps links (Maps URLs API) ---------- */
-  const ll = (lat, lng) => lat.toFixed(6) + ',' + lng.toFixed(6);
-  const gDrive = (t) => 'https://www.google.com/maps/dir/?api=1&destination=' + ll(t.lat, t.lng) + '&travelmode=driving';
-  const gWalk = (t, p) => 'https://www.google.com/maps/dir/?api=1&origin=' + ll(t.lat, t.lng) + '&destination=' + ll(p.lat, p.lng) + '&travelmode=walking';
-  const gPano = (t) => 'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' + ll(t.lat, t.lng) + '&heading=' + t.heading + '&pitch=0&fov=90';
+  const ll = (p) => p.lat.toFixed(6) + ',' + p.lng.toFixed(6);
+  const gDrive = (t, o) => 'https://www.google.com/maps/dir/?api=1' + (o ? '&origin=' + ll(o) : '') + '&destination=' + ll(t) + '&travelmode=driving';
+  const gWalk = (t, p) => 'https://www.google.com/maps/dir/?api=1&origin=' + ll(t) + '&destination=' + ll(p) + '&travelmode=walking';
+  const gPano = (t) => 'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' + ll(t) + '&heading=' + t.heading + '&pitch=0&fov=90';
+
+  /* ---------- routing (OSRM, FOSSGIS) ---------- */
+  const routeCache = new Map();
+  async function route(profile, a, b, signal) {
+    const key = profile + ll(a) + ll(b);
+    if (routeCache.has(key)) return routeCache.get(key);
+    const url = ROUTER + 'routed-' + profile + '/route/v1/driving/' + a.lng.toFixed(6) + ',' + a.lat.toFixed(6) + ';' + b.lng.toFixed(6) + ',' + b.lat.toFixed(6) + '?overview=full&geometries=geojson';
+    const r = await fetch(url, { signal });
+    if (!r.ok) throw new Error('route ' + r.status);
+    const j = await r.json();
+    if (j.code !== 'Ok' || !j.routes || !j.routes.length) throw new Error('no route');
+    const rt = j.routes[0];
+    const out = { distance: rt.distance, duration: rt.duration, coords: rt.geometry.coordinates.map((c) => [c[1], c[0]]) };
+    routeCache.set(key, out);
+    return out;
+  }
 
   /* ---------- search normalisation ---------- */
   function foldHangul(s) {
-    // aspirated/tense → plain initial so 토쿄/도쿄, 츠/쓰/즈 variants meet
     // initials: ㄲ→ㄱ ㄸ→ㄷ ㅃ→ㅂ ㅆ/ㅉ/ㅊ→ㅈ ㅋ→ㄱ ㅌ→ㄷ ㅍ→ㅂ  (쓰/츠/즈, 도쿄/토쿄 meet)
     const MAP = { 1: 0, 4: 3, 8: 7, 10: 12, 13: 12, 14: 12, 15: 0, 16: 3, 17: 7 };
     let out = '';
@@ -401,8 +469,7 @@ footer a { text-underline-offset: 2px; }
       const c = ch.codePointAt(0);
       if (c >= 0xac00 && c <= 0xd7a3) {
         const i = c - 0xac00, L = Math.floor(i / 588), rest = i % 588;
-        const L2 = MAP[L] !== undefined ? MAP[L] : L;
-        out += String.fromCodePoint(0xac00 + L2 * 588 + rest);
+        out += String.fromCodePoint(0xac00 + (MAP[L] !== undefined ? MAP[L] : L) * 588 + rest);
       } else out += ch;
     }
     return out;
@@ -410,16 +477,13 @@ footer a { text-underline-offset: 2px; }
   function norm(s) {
     if (!s) return '';
     let t = s.normalize('NFKC').toLowerCase();
-    t = t.normalize('NFD').replace(/[̀-ͯ]/g, '').normalize('NFC'); // ō → o
-    t = t.replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60)); // katakana → hiragana
+    t = t.normalize('NFD').replace(/[̀-ͯ]/g, '').normalize('NFC');
+    t = t.replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
     t = t.replace(/[\s\-‐・·,.'’()（）「」『』]/g, '');
     return t;
   }
-  function stripSuffix(t) {
-    return t.replace(/(駅|えき|역|station|sta)$/u, '');
-  }
+  const stripSuffix = (t) => t.replace(/(駅|えき|역|station|sta)$/u, '');
 
-  /* ---------- coordinates & Google Maps links typed by the user ---------- */
   function parseCoords(raw) {
     const s = raw.trim();
     let m = s.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
@@ -430,9 +494,10 @@ footer a { text-underline-offset: 2px; }
     if (m) return { lat: +m[1], lng: +m[2] };
     m = s.match(/(\d+)°\s*(\d+)['′]\s*([\d.]+)["″]?\s*([NS])[\s,]+(\d+)°\s*(\d+)['′]\s*([\d.]+)["″]?\s*([EW])/i);
     if (m) {
-      const a = (+m[1] + m[2] / 60 + m[3] / 3600) * (/s/i.test(m[4]) ? -1 : 1);
-      const b = (+m[5] + m[6] / 60 + m[7] / 3600) * (/w/i.test(m[8]) ? -1 : 1);
-      return { lat: a, lng: b };
+      return {
+        lat: (+m[1] + m[2] / 60 + m[3] / 3600) * (/s/i.test(m[4]) ? -1 : 1),
+        lng: (+m[5] + m[6] / 60 + m[7] / 3600) * (/w/i.test(m[8]) ? -1 : 1),
+      };
     }
     m = s.match(/^(-?\d{1,2}\.\d+)\s*[, ]\s*(-?\d{2,3}\.\d+)$/);
     if (m) return { lat: +m[1], lng: +m[2] };
@@ -443,26 +508,142 @@ footer a { text-underline-offset: 2px; }
   /* ---------- state ---------- */
   const st = {
     zones: [], places: [], index: [],
-    place: null, day: null,
+    place: null, day: null, origin: null,
     results: [], shown: PAGE, sel: 0,
-    view: { lat: 0, lng: 0, R: 600 }, autoFit: true,
   };
-
+  const store = {
+    get(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } },
+  };
   function loadStored() {
-    try {
-      const v = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
-      if (v && typeof v.lat === 'number' && typeof v.lng === 'number' && inTokyo(v)) return { label: String(v.label || ''), sub: String(v.sub || ''), lat: v.lat, lng: v.lng };
-    } catch (e) { /* storage unavailable */ }
+    const v = store.get(STORE_KEY);
+    if (v && typeof v.lat === 'number' && typeof v.lng === 'number' && inTokyo(v)) return { label: String(v.label || ''), sub: String(v.sub || ''), lat: v.lat, lng: v.lng };
     return null;
   }
-  function saveStored(p) {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(p)); } catch (e) { /* ignore */ }
+
+  /* ---------- map ---------- */
+  const map = L.map('map', { zoomControl: false, attributionControl: true, minZoom: 10, maxZoom: 19 });
+  map.attributionControl.setPrefix(false);
+  L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png', {
+    maxNativeZoom: 18, maxZoom: 19,
+    attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener noreferrer">地理院タイル</a> · 경로 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OSM</a>',
+  }).addTo(map);
+  L.control.zoom({ position: 'topright', zoomInTitle: '확대', zoomOutTitle: '축소' }).addTo(map);
+  const FitCtl = L.Control.extend({
+    options: { position: 'topright' },
+    onAdd() {
+      const box = L.DomUtil.create('div', 'leaflet-bar');
+      const b = L.DomUtil.create('button', 'fit', box);
+      b.type = 'button';
+      b.title = '경로 전체 보기';
+      b.setAttribute('aria-label', '경로 전체 보기');
+      b.innerHTML = '<svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="2.5"/><circle cx="10" cy="10" r="2" fill="currentColor"/></svg>';
+      L.DomEvent.disableClickPropagation(box);
+      L.DomEvent.on(b, 'click', () => fitTrip(true));
+      return box;
+    },
+  });
+  map.addControl(new FitCtl());
+  const css = () => getComputedStyle(document.documentElement);
+  const C = (n) => css().getPropertyValue(n).trim();
+  const zoneLayer = L.layerGroup().addTo(map);
+  const routeLayer = L.layerGroup().addTo(map);
+  const markLayer = L.layerGroup().addTo(map);
+  let zoneLines = [];
+  let destMarker = null, meMarker = null, meCircle = null;
+
+  function buildZones() {
+    zoneLayer.clearLayers();
+    zoneLines = st.zones.map((z) => {
+      const latlngs = z.l.map((line) => line.map((c) => [c[1], c[0]]));
+      const vis = L.polyline(latlngs, { interactive: false });
+      const hit = L.polyline(latlngs, { weight: 22, opacity: 0.001, interactive: true });
+      hit.on('click', (e) => { L.DomEvent.stop(e); pickZone(z); });
+      vis.addTo(zoneLayer); hit.addTo(zoneLayer);
+      return { z, vis, hit };
+    });
+    styleZones();
+  }
+  function styleZones() {
+    const kind = st.day.kind, g = C('--green-line'), b = C('--blue');
+    for (const { z, vis, hit } of zoneLines) {
+      const idle = isIdle(z, kind);
+      vis.setStyle(idle ? { color: g, weight: 6, opacity: 1, lineCap: 'butt' } : { color: b, weight: 2.5, opacity: 0.55 });
+      if (idle) { if (!zoneLayer.hasLayer(hit)) hit.addTo(zoneLayer); hit.bringToFront(); }
+      else zoneLayer.removeLayer(hit);
+    }
+  }
+  const divIcon = (cls, html, size) => L.divIcon({ className: '', html: '<div class="' + cls + '">' + (html || '') + '</div>', iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+
+  function drawMarkers() {
+    markLayer.clearLayers();
+    const n = Math.min(st.shown, st.results.length);
+    for (let i = n - 1; i >= 0; i--) {
+      if (i === st.sel) continue;
+      const r = st.results[i];
+      const m = L.marker([r.n.lat, r.n.lng], { icon: divIcon('mk-rank', String(i + 1), 26), keyboard: false, title: (i + 1) + '번 후보', zIndexOffset: 100 });
+      m.on('click', () => select(i, { fit: true }));
+      m.addTo(markLayer);
+    }
+    const s = st.results[st.sel];
+    if (s) L.marker([s.n.lat, s.n.lng], { icon: divIcon('mk-p', 'P', 34), keyboard: false, title: '주차 구간', zIndexOffset: 900 }).addTo(markLayer);
+    if (st.place) {
+      if (!destMarker) {
+        destMarker = L.marker([st.place.lat, st.place.lng], { icon: divIcon('mk-dest', '', 24), keyboard: false, title: '목적지', zIndexOffset: 800 });
+        const tip = document.createElement('span');
+        destMarker.bindTooltip(tip, { permanent: true, direction: 'right', offset: [14, 0], className: 'tip-dest' });
+      }
+      destMarker.setLatLng([st.place.lat, st.place.lng]);
+      destMarker.getTooltip().getContent().textContent = st.place.label.replace(/역$/, '');
+      destMarker.addTo(map);
+      destMarker.getTooltip().update();
+    }
+  }
+  function drawMe() {
+    if (!st.origin) { if (meMarker) { map.removeLayer(meMarker); map.removeLayer(meCircle); } return; }
+    const p = [st.origin.lat, st.origin.lng];
+    if (!meMarker) {
+      meMarker = L.marker(p, { icon: divIcon('mk-me', '', 18), keyboard: false, title: '내 위치', zIndexOffset: 700 });
+      meCircle = L.circle(p, { radius: 30, color: C('--blue'), weight: 1, fillOpacity: 0.08, interactive: false });
+    }
+    meMarker.setLatLng(p).addTo(map);
+    meCircle.setLatLng(p).setRadius(Math.min(st.origin.acc || 30, 500)).addTo(map);
+  }
+  const originNear = () => st.origin && st.place && straight(st.origin, st.place) < 60000;
+  function fitTrip(force) {
+    const s = st.results[st.sel];
+    const pts = [];
+    if (st.place) pts.push([st.place.lat, st.place.lng]);
+    if (s) pts.push([s.n.lat, s.n.lng]);
+    if (originNear()) pts.push([st.origin.lat, st.origin.lng]);
+    if (force) routeLayer.eachLayer((l) => { if (l.getLatLngs) pts.push(...l.getLatLngs()); });
+    if (!pts.length) return;
+    const b = L.latLngBounds(pts);
+    map.fitBounds(b.pad(0.08), { padding: [36, 36], maxZoom: 17, animate: !reduceMotion() });
   }
 
-  /* ---------- day UI ---------- */
+  // long-press (touch) or right-click: set destination
+  map.on('contextmenu', (e) => {
+    setPlace({ label: '지도에서 고른 곳', sub: e.latlng.lat.toFixed(5) + ', ' + e.latlng.lng.toFixed(5), lat: e.latlng.lat, lng: e.latlng.lng }, true);
+  });
+
+  // place the map under the search on phones, in the right column on desktop
+  const mq = matchMedia('(min-width: 960px)');
+  function placeMap() {
+    const home = $('mapHome');
+    const target = mq.matches ? $('mapCol') : $('mobileMapSlot');
+    if (home.parentElement !== target) target.appendChild(home);
+    $('mapCol').hidden = !mq.matches;
+    map.invalidateSize();
+  }
+  mq.addEventListener('change', placeMap);
+  const restyle = () => { if (st.day && zoneLines.length) { styleZones(); drawTripRoutes(); } };
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', restyle);
+  new MutationObserver(restyle).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  /* ---------- day ---------- */
   function renderDay() {
-    const d = st.day, el = $('state');
-    const title = $('stateTitle'), sub = $('stateSub'), jump = $('jump');
+    const d = st.day, el = $('state'), title = $('stateTitle'), sub = $('stateSub'), jump = $('jump');
     jump.hidden = true;
     if (d.kind === 'newyear') {
       el.dataset.k = 'free';
@@ -472,20 +653,12 @@ footer a { text-underline-offset: 2px; }
       el.dataset.k = 'free';
       title.textContent = d.text + (d.hol ? ' · 공휴일' : ' · 일요일');
       sub.textContent = (d.hol ? d.hol + '. ' : '') + '녹색 구간은 미터가 쉽니다.';
-    } else if (d.kind === 'sat') {
-      el.dataset.k = 'sat';
-      title.textContent = d.text + ' · 토요일';
-      sub.textContent = '토요일에도 쉬는 일부 구간만 보여 줍니다. 대부분은 유료입니다.';
-      const nx = nextFreeDay(d.s);
-      jump.textContent = nx.text + ' 기준으로 보기';
-      jump.dataset.to = nx.s;
-      jump.hidden = false;
     } else {
-      el.dataset.k = 'paid';
-      title.textContent = d.text + ' · 평일';
-      sub.textContent = '이 날은 모든 구간에서 미터가 작동합니다(유료).';
       const nx = nextFreeDay(d.s);
-      jump.textContent = '다음 휴일 ' + nx.text + (nx.hol ? ' ' + nx.hol : '') + ' 기준으로 보기';
+      el.dataset.k = d.kind === 'sat' ? 'sat' : 'paid';
+      title.textContent = d.text + (d.kind === 'sat' ? ' · 토요일' : ' · 평일');
+      sub.textContent = d.kind === 'sat' ? '토요일에도 쉬는 일부 구간만 보여 줍니다. 대부분은 유료입니다.' : '이 날은 모든 구간에서 미터가 작동합니다(유료).';
+      jump.textContent = (d.kind === 'sat' ? '' : '다음 휴일 ') + nx.text + (nx.hol ? ' ' + nx.hol : '') + ' 기준으로 보기';
       jump.dataset.to = nx.s;
       jump.hidden = false;
     }
@@ -493,8 +666,7 @@ footer a { text-underline-offset: 2px; }
 
   /* ---------- results ---------- */
   function compute() {
-    const p = st.place, kind = st.day.kind;
-    const out = [];
+    const p = st.place, kind = st.day.kind, out = [];
     for (const z of st.zones) {
       if (!isIdle(z, kind)) continue;
       const n = nearestOnZone(z, p);
@@ -504,53 +676,69 @@ footer a { text-underline-offset: 2px; }
     st.results = out;
     st.shown = PAGE;
     st.sel = 0;
-    st.autoFit = true;
   }
-  function kindLabel(z) { return z.t ? '파킹 미터' : '파킹 티켓'; }
-  function hoursLabel(z) { return z.h.replace('-', '–'); }
+  const kindLabel = (z) => z.t ? '파킹 미터' : '파킹 티켓';
+  const signText = (z) => '평일 ' + z.h.replace('-', '–') + ' · ' + z.m + '분 · ' + z.f + '엔 · ' + kindLabel(z);
 
   function renderList() {
     const list = $('list');
     list.textContent = '';
-    const r = st.results;
-    const kind = st.day.kind;
+    const kind = st.day.kind, r = st.results;
     const free = st.zones.filter((z) => isIdle(z, kind)).length;
     $('sumTitle').textContent = kind === 'weekday' ? '이 날은 무료 후보가 없습니다' : '가까운 무료 후보';
-    $('sumSub').textContent = kind === 'weekday' ? '' : '도쿄 전체 ' + free + '개 구간 중 가까운 순';
-    if (kind === 'weekday') {
+    $('sumSub').textContent = kind === 'weekday' ? '' : '도쿄 전체 ' + free + '개 구간 중 목적지에서 가까운 순';
+    $('more').hidden = true;
+    if (kind === 'weekday' || !r.length) {
       const li = document.createElement('li');
       li.className = 'empty';
-      li.textContent = '평일에는 모든 파킹 미터가 작동합니다. 위의 ‘다음 휴일 기준으로 보기’를 누르면 휴일 후보를 보여 줍니다.';
+      li.textContent = kind === 'weekday' ? '평일에는 모든 파킹 미터가 작동합니다. 위의 ‘다음 휴일 기준으로 보기’를 누르세요.' : '조건에 맞는 구간이 없습니다.';
       list.appendChild(li);
-      $('more').hidden = true;
       return;
-    }
-    if (!r.length) {
-      const li = document.createElement('li');
-      li.className = 'empty';
-      li.textContent = '조건에 맞는 구간이 없습니다.';
-      list.appendChild(li);
-      $('more').hidden = true;
-      return;
-    }
-    if (r[0].d > 2000) {
-      const li = document.createElement('li');
-      li.className = 'empty';
-      li.textContent = '가장 가까운 후보도 ' + fmtDist(r[0].d) + fmtUnit(r[0].d) + ' 떨어져 있습니다. 파킹 미터는 주로 23구 도심에 있습니다.';
-      list.appendChild(li);
     }
     const n = Math.min(st.shown, r.length);
-    for (let i = 0; i < n; i++) list.appendChild(itemEl(r[i], i));
-    $('more').hidden = n >= r.length || n >= 20;
+    for (let i = 0; i < n; i++) {
+      const { z, n: pt, d } = r[i];
+      const li = document.createElement('li');
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'row';
+      b.id = 'row-' + i;
+      b.setAttribute('aria-current', String(i === st.sel));
+      const rank = document.createElement('span');
+      rank.className = 'rank';
+      rank.textContent = String(i + 1);
+      const body = document.createElement('span');
+      body.style.minWidth = '0';
+      const top = document.createElement('span');
+      const bd = document.createElement('b');
+      bd.textContent = fmtD(d);
+      const sub = document.createElement('span');
+      sub.className = 'sub';
+      sub.textContent = ' 목적지에서 ' + (d < 15 ? '바로 앞' : dirText(pt.x, pt.y) + '쪽') + (z.r === 2 && kind !== 'sat' ? ' · 토요일에도 쉼' : '');
+      top.append(bd, sub);
+      const sm = document.createElement('small');
+      sm.textContent = signText(z);
+      body.append(top, sm);
+      b.append(rank, body);
+      b.addEventListener('click', () => {
+        select(i, { fit: true });
+        if (!mq.matches) $('mapHome').scrollIntoView({ block: 'start', behavior: reduceMotion() ? 'auto' : 'smooth' });
+      });
+      li.appendChild(b);
+      list.appendChild(li);
+    }
+    $('more').hidden = n >= r.length || n >= 30;
   }
 
+  /* ---------- trip card ---------- */
+  let tripAbort = null;
   function linkBtn(href, text, cls, icon, aria) {
     const a = document.createElement('a');
-    if (aria) a.setAttribute('aria-label', aria);
     a.className = 'btn' + (cls ? ' ' + cls : '');
     a.href = href;
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
+    if (aria) a.setAttribute('aria-label', aria);
     if (icon) a.insertAdjacentHTML('afterbegin', icon);
     a.appendChild(document.createTextNode(text));
     return a;
@@ -558,292 +746,193 @@ footer a { text-underline-offset: 2px; }
   const IC_CAR = '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="2" y="7" width="14" height="6" fill="currentColor"/><polygon points="4,7 6,3 12,3 14,7" fill="currentColor"/><circle cx="5" cy="14" r="2" fill="currentColor"/><circle cx="13" cy="14" r="2" fill="currentColor"/></svg>';
   const IC_WALK = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="9" cy="2.5" r="2" fill="currentColor"/><path d="M8 5l-3 4 2 1 1-2v3l-2 4h2l2-4V7l2 3h2L10 5z" fill="currentColor"/></svg>';
   const IC_EYE = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="3" width="14" height="10" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8" cy="8" r="2.5" fill="currentColor"/></svg>';
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 
-  function itemEl(res, i) {
-    const { z, n, d } = res;
-    const li = document.createElement('li');
-    li.className = 'item' + (i === st.sel ? ' sel' : '');
-    li.id = 'item-' + i;
-    const rank = document.createElement('button');
-    rank.type = 'button';
-    rank.className = 'rank';
-    rank.textContent = String(i + 1);
-    rank.setAttribute('aria-label', (i + 1) + '번 후보를 지도에서 보기');
-    rank.addEventListener('click', () => {
-      select(i, true);
-      if (!mq.matches) $('mapbox').scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
-    });
-    li.appendChild(rank);
-
-    const body = document.createElement('div');
-    body.style.minWidth = '0';
-    const dist = document.createElement('div');
-    dist.className = 'dist';
-    const b = document.createElement('b');
-    b.textContent = fmtDist(d) + ' ' + fmtUnit(d);
-    const sp = document.createElement('span');
-    sp.textContent = (d < 15 ? '목적지 바로 앞' : '목적지에서 ' + dirText(n.x, n.y) + '쪽') + (d <= 2000 ? ' · 걸어서 약 ' + walkMin(d) + '분' : '');
-    dist.append(b, sp);
-    const meta = document.createElement('p');
-    meta.className = 'meta';
-    meta.textContent = '현장 표지: 평일 ' + hoursLabel(z) + ' · ' + z.m + '분 · ' + z.f + '엔 · ' + kindLabel(z) + ' · 구간 약 ' + Math.max(10, Math.round(zoneLength(z) / 10) * 10) + 'm';
-    body.append(dist, meta);
-
-    const tags = document.createElement('div');
-    tags.className = 'tags';
-    const addTag = (t, c) => { const s = document.createElement('span'); s.className = 'tag' + (c ? ' ' + c : ''); s.textContent = t; tags.appendChild(s); };
-    if (z.r === 2) addTag('토요일에도 쉼', 'g');
-    if (z.g) addTag('화물차 전용 칸 있음');
-    if (tags.childNodes.length) body.appendChild(tags);
-
-    const acts = document.createElement('div');
-    acts.className = 'acts';
-    acts.append(
-      linkBtn(gDrive(n), '여기까지 운전 경로', 'primary', IC_CAR),
-      linkBtn(gWalk(n, st.place), '도보 경로', '', IC_WALK, '주차 구간에서 목적지까지 도보 경로'),
-      linkBtn(gPano(n), '표지 거리뷰', '', IC_EYE, '거리뷰로 현장 표지 확인'),
-    );
-    body.appendChild(acts);
-    li.appendChild(body);
+  function stopEl(nodeCls, nodeText, title, sub) {
+    const li = el('li', 'stop');
+    li.append(el('i', 'node ' + nodeCls, nodeText), (() => { const d = el('div'); d.style.minWidth = '0'; d.append(el('b', '', title)); if (sub) d.append(el('small', '', sub)); return d; })());
     return li;
   }
+  function legEl(kind) {
+    const li = el('li', 'leg ' + kind);
+    const what = el('div', 'what');
+    li.append(el('i', 'rail'), what);
+    return { li, what };
+  }
+  function zoomTo(pts) {
+    if (!pts.length) return;
+    map.fitBounds(L.latLngBounds(pts).pad(0.1), { padding: [36, 36], maxZoom: 18, animate: !reduceMotion() });
+    if (!mq.matches) $('mapHome').scrollIntoView({ block: 'start', behavior: reduceMotion() ? 'auto' : 'smooth' });
+  }
+  function viewBtn(getPts) {
+    const b = el('button', 'btn', '지도에서 이 구간 보기');
+    b.type = 'button';
+    b.style.borderWidth = '2px';
+    b.style.minHeight = '38px';
+    b.style.fontSize = '13px';
+    b.addEventListener('click', () => zoomTo(getPts()));
+    return b;
+  }
+  function legActs(what, link, getPts) {
+    const row = el('div', 'park-acts');
+    row.append(link, viewBtn(getPts));
+    what.append(row);
+    return row;
+  }
+  function legNumbers(what, mode, dist, time, note) {
+    what.textContent = '';
+    what.append(el('span', 'mode', mode));
+    const num = el('div', 'num');
+    num.append(el('b', '', dist), el('span', '', time));
+    what.append(num);
+    if (note) what.append(el('span', 'note', note));
+  }
 
-  function select(i, fromList) {
+  let curRoutes = { drive: null, walk: null };
+  function renderTrip() {
+    const steps = $('steps');
+    steps.textContent = '';
+    const s = st.results[st.sel];
+    const total = Math.min(st.results.length, 30);
+    $('prev').disabled = !s || st.sel <= 0;
+    $('next').disabled = !s || st.sel >= total - 1;
+    if (!s) {
+      $('tripTitle').textContent = '경로';
+      steps.append(el('li', 'empty', st.day && st.day.kind === 'weekday' ? '이 날은 무료 후보가 없습니다.' : '목적지를 정하면 경로를 보여 줍니다.'));
+      return;
+    }
+    $('tripTitle').textContent = (st.sel + 1) + '번 후보 경로';
+
+    // 1. origin
+    steps.append(stopEl('me', '', st.origin ? '내 위치' : '출발', st.origin ? '정확도 ±' + Math.round(st.origin.acc || 0) + 'm' : '내 위치를 켜면 운전 거리를 계산합니다'));
+    // 2. drive leg
+    const drive = legEl('drive');
+    const dWhat = drive.what;
+    if (st.origin && originNear()) {
+      const d0 = straight(st.origin, s.n);
+      legNumbers(dWhat, '운전', '계산 중…', '', '직선 ' + fmtD(d0));
+    } else if (st.origin) {
+      legNumbers(dWhat, '운전', fmtD(straight(st.origin, s.n)), '직선거리', '내 위치가 목적지에서 멀어 경로를 계산하지 않았습니다.');
+    } else {
+      dWhat.append(el('span', 'mode', '운전'));
+      const b = el('button', 'btn', '내 위치에서 거리 보기');
+      b.type = 'button';
+      b.addEventListener('click', () => locate(true));
+      dWhat.append(b);
+    }
+    const driveLink = linkBtn(gDrive(s.n), '구글맵 길안내 (여기까지)', 'primary', IC_CAR, '구글맵에서 이 주차 구간까지 운전 길안내');
+    if (st.origin && originNear()) legActs(dWhat, driveLink, () => curRoutes.drive ? curRoutes.drive.coords : [[st.origin.lat, st.origin.lng], [s.n.lat, s.n.lng]]);
+    else dWhat.append(driveLink);
+    steps.append(drive.li);
+    // 3. parking
+    const park = stopEl('park', 'P', '주차 · ' + (st.sel + 1) + '번 녹색 구간', '현장 표지: ' + signText(s.z) + ' · 구간 약 ' + Math.max(10, Math.round(zoneLength(s.z) / 10) * 10) + 'm' + (s.z.g ? ' · 화물차 전용 칸 있음' : ''));
+    const pa = el('div', 'park-acts');
+    pa.append(linkBtn(gPano(s.n), '표지 거리뷰', '', IC_EYE, '거리뷰로 현장 표지 확인'));
+    park.lastChild.append(pa);
+    steps.append(park);
+    // 4. walk leg
+    const walk = legEl('walk');
+    legNumbers(walk.what, '도보', fmtD(s.d), '약 ' + fmtMin(walkSecGuess(s.d)), '경로 계산 중… (지금은 직선 기준)');
+    legActs(walk.what, linkBtn(gWalk(s.n, st.place), '구글맵 도보 경로', '', IC_WALK, '구글맵에서 주차 구간부터 목적지까지 도보 경로'), () => curRoutes.walk ? curRoutes.walk.coords : [[s.n.lat, s.n.lng], [st.place.lat, st.place.lng]]);
+    steps.append(walk.li);
+    // 5. destination
+    steps.append(stopEl('dest', '', '도착 · ' + st.place.label, st.place.sub || ''));
+
+    // routes
+    if (tripAbort) tripAbort.abort();
+    tripAbort = new AbortController();
+    const sig = tripAbort.signal;
+    const mySel = st.sel;
+    curRoutes = { drive: null, walk: null };
+    drawTripRoutes();
+    route('foot', s.n, st.place, sig).then((r) => {
+      if (sig.aborted || mySel !== st.sel) return;
+      curRoutes.walk = r;
+      const keep = walk.what.querySelector('.park-acts');
+      legNumbers(walk.what, '도보', fmtD(r.distance), '약 ' + fmtMin(r.duration), '실제 걷는 길 기준');
+      walk.what.append(keep);
+      drawTripRoutes();
+    }).catch((e) => {
+      if (e.name === 'AbortError') return;
+      const keep = walk.what.querySelector('.park-acts');
+      legNumbers(walk.what, '도보', fmtD(s.d), '약 ' + fmtMin(walkSecGuess(s.d)), '경로 서버에 연결하지 못해 직선거리로 어림했습니다.');
+      walk.what.append(keep);
+    });
+    if (st.origin && originNear()) {
+      route('car', st.origin, s.n, sig).then((r) => {
+        if (sig.aborted || mySel !== st.sel) return;
+        curRoutes.drive = r;
+        const keep = dWhat.querySelector('.park-acts');
+        legNumbers(dWhat, '운전', fmtD(r.distance), '약 ' + fmtMin(r.duration), '막히지 않을 때 기준 · 실제 시간은 구글맵에서');
+        dWhat.append(keep);
+        drawTripRoutes();
+      }).catch((e) => {
+        if (e.name === 'AbortError') return;
+        const keep = dWhat.querySelector('.park-acts');
+        legNumbers(dWhat, '운전', fmtD(straight(st.origin, s.n)), '직선거리', '경로 서버에 연결하지 못했습니다. 구글맵 길안내를 쓰세요.');
+        dWhat.append(keep);
+      });
+    }
+  }
+  function drawTripRoutes() {
+    routeLayer.clearLayers();
+    if (curRoutes.drive) {
+      L.polyline(curRoutes.drive.coords, { color: C('--paper'), weight: 9, opacity: 0.9, interactive: false }).addTo(routeLayer);
+      L.polyline(curRoutes.drive.coords, { color: C('--ink'), weight: 5, opacity: 0.95, interactive: false }).addTo(routeLayer);
+    }
+    if (curRoutes.walk) {
+      L.polyline(curRoutes.walk.coords, { color: C('--paper'), weight: 8, opacity: 0.9, interactive: false }).addTo(routeLayer);
+      L.polyline(curRoutes.walk.coords, { color: C('--red'), weight: 4, dashArray: '2 8', lineCap: 'round', interactive: false }).addTo(routeLayer);
+    } else if (st.results[st.sel] && st.place) {
+      const s = st.results[st.sel];
+      L.polyline([[s.n.lat, s.n.lng], [st.place.lat, st.place.lng]], { color: C('--red'), weight: 2, dashArray: '2 6', opacity: 0.7, interactive: false }).addTo(routeLayer);
+    }
+  }
+
+  function select(i, opt) {
+    if (i < 0 || i >= st.results.length) return;
     st.sel = i;
-    document.querySelectorAll('.item').forEach((el) => el.classList.toggle('sel', el.id === 'item-' + i));
-    if (fromList) {
-      const r = st.results[i];
-      if (r) {
-        const v = st.view;
-        const dx = (r.n.lng - v.lng) * mLng(v.lat), dy = (r.n.lat - v.lat) * M_LAT;
-        if (Math.abs(dx) > v.R * 0.85 || Math.abs(dy) > v.R * 0.85) { v.lat = r.n.lat; v.lng = r.n.lng; }
-      }
-    }
-    drawMap();
-    if (!fromList) {
-      const el = $('item-' + i);
-      if (el) el.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
-    }
+    if (i >= st.shown) { st.shown = Math.min(30, Math.ceil((i + 1) / PAGE) * PAGE); renderList(); }
+    document.querySelectorAll('.row').forEach((b) => b.setAttribute('aria-current', String(b.id === 'row-' + i)));
+    drawMarkers();
+    renderTrip();
+    if (opt && opt.fit) fitTrip(false);
   }
-
-  /* ---------- map ---------- */
-  const SVGNS = 'http://www.w3.org/2000/svg';
-  const mk = (tag, attrs) => { const e = document.createElementNS(SVGNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
-  const ZOOMS = [150, 250, 400, 600, 900, 1400, 2200, 3500];
-
-  function fitView() {
-    const p = st.place, v = st.view;
-    v.lat = p.lat; v.lng = p.lng;
-    const top = st.results.slice(0, 3);
-    const far = top.length ? Math.max(...top.map((r) => r.d)) : 400;
-    v.R = ZOOMS.find((z) => z >= far * 1.35 + 60) || ZOOMS[ZOOMS.length - 1];
+  function pickZone(z) {
+    const i = st.results.findIndex((r) => r.z === z);
+    if (i >= 0) select(i, { fit: false });
   }
+  $('prev').addEventListener('click', () => select(st.sel - 1, { fit: true }));
+  $('next').addEventListener('click', () => select(st.sel + 1, { fit: true }));
 
-  function drawMap() {
-    if (!st.day) return;
-    const svg = $('map');
-    const box = $('mapbox');
-    const W = box.clientWidth || 360, H = box.clientHeight || W;
-    const v = st.view;
-    if (st.autoFit && st.place) { fitView(); st.autoFit = false; }
-    const S = Math.min(W, H) / (2 * v.R); // px per metre
-    const kx = mLng(v.lat);
-    const X = (lng) => W / 2 + (lng - v.lng) * kx * S;
-    const Y = (lat) => H / 2 - (lat - v.lat) * M_LAT * S;
-    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
-    svg.textContent = '';
-    const css = getComputedStyle(document.documentElement);
-    const C = (n) => css.getPropertyValue(n).trim();
-    const latSpan = (H / 2) / S / M_LAT * 1.2, lngSpan = (W / 2) / S / kx * 1.2;
-    const inView = (lng, lat) => Math.abs(lat - v.lat) < latSpan && Math.abs(lng - v.lng) < lngSpan;
-
-    // grid (Bauhaus field)
-    const g0 = mk('g', {});
-    const step = niceStep(v.R / 2);
-    const gx0 = Math.floor(-W / 2 / S / step) * step;
-    for (let m = gx0; m * S < W / 2 + step * S; m += step) {
-      const x = W / 2 + m * S; g0.appendChild(mk('line', { x1: x, y1: 0, x2: x, y2: H, stroke: C('--soft'), 'stroke-width': 1 }));
-    }
-    const gy0 = Math.floor(-H / 2 / S / step) * step;
-    for (let m = gy0; m * S < H / 2 + step * S; m += step) {
-      const y = H / 2 + m * S; g0.appendChild(mk('line', { x1: 0, y1: y, x2: W, y2: y, stroke: C('--soft'), 'stroke-width': 1 }));
-    }
-    svg.appendChild(g0);
-
-    // radius rings around destination
-    if (st.place) {
-      const cx = X(st.place.lng), cy = Y(st.place.lat);
-      for (const r of [250, 500, 1000]) {
-        if (r * S < 30 || r * S > Math.max(W, H)) continue;
-        svg.appendChild(mk('circle', { cx, cy, r: r * S, fill: 'none', stroke: C('--mute'), 'stroke-width': 1, 'stroke-dasharray': '3 5' }));
-        const t = mk('text', { x: cx + r * S * 0.707 + 4, y: cy - r * S * 0.707 - 4, fill: C('--mute'), 'font-size': 11, 'font-family': 'Jost, sans-serif' });
-        t.textContent = r < 1000 ? r + 'm' : '1km';
-        svg.appendChild(t);
-      }
-    }
-
-    // zones
-    const kind = st.day.kind;
-    const gPaid = mk('g', {}), gFree = mk('g', {}), gHit = mk('g', {});
-    const rankOf = new Map(st.results.slice(0, Math.min(st.shown, st.results.length)).map((r, i) => [r.z.i, i]));
-    let selPath = null;
-    for (const z of st.zones) {
-      if (!z.l.some((line) => line.some((c) => inView(c[0], c[1])))) continue;
-      const dpath = z.l.map((line) => 'M' + line.map((c) => X(c[0]).toFixed(1) + ' ' + Y(c[1]).toFixed(1)).join('L')).join('');
-      const idle = isIdle(z, kind);
-      if (idle) {
-        gFree.appendChild(mk('path', { d: dpath, fill: 'none', stroke: C('--green-line'), 'stroke-width': 6, 'stroke-linecap': 'butt' }));
-        const ri = rankOf.get(z.i);
-        if (ri !== undefined) {
-          const hit = mk('path', { d: dpath, fill: 'none', stroke: 'transparent', 'stroke-width': 22, 'data-rank': ri, style: 'cursor:pointer' });
-          gHit.appendChild(hit);
-          if (ri === st.sel) selPath = dpath;
-        }
-      } else {
-        gPaid.appendChild(mk('path', { d: dpath, fill: 'none', stroke: C('--blue'), 'stroke-width': 2, 'stroke-opacity': 0.6 }));
-      }
-    }
-    svg.appendChild(gPaid);
-    if (selPath) svg.appendChild(mk('path', { d: selPath, fill: 'none', stroke: C('--yellow'), 'stroke-width': 14 }));
-    svg.appendChild(gFree);
-
-    // stations
-    const gSt = mk('g', {}), boxes = [];
-    if (st.place) {
-      const dx = X(st.place.lng), dy = Y(st.place.lat);
-      boxes.push({ x: dx - 14, y: dy - 14, w: 28, h: 28 });
-      const lbl = st.place.label.replace(/역$/, '');
-      const w = lbl.length * 13 + 6, left = dx + 16 + w > W - 56;
-      boxes.push({ x: left ? dx - 16 - w : dx + 16, y: dy - 10, w, h: 20 });
-      st._destLabel = { x: left ? dx - 16 : dx + 16, y: dy + 5, anchor: left ? 'end' : 'start', text: lbl };
-    }
-    const showLabels = v.R <= 1400;
-    const stations = st.places.filter((p) => p.k === 's' && inView(p.lng, p.lat));
-    for (const p of stations) {
-      const x = X(p.lng), y = Y(p.lat);
-      gSt.appendChild(mk('rect', { x: x - 4, y: y - 4, width: 8, height: 8, fill: C('--ink') }));
-      if (!showLabels) continue;
-      const name = (p.ko || p.ja).replace(/역$/, '');
-      const w = name.length * 11.5 + 4, bx = { x: x + 7, y: y - 8, w, h: 15 };
-      if (boxes.some((o) => bx.x < o.x + o.w && bx.x + bx.w > o.x && bx.y < o.y + o.h && bx.y + bx.h > o.y)) continue;
-      boxes.push(bx);
-      const t = mk('text', { x: x + 8, y: y + 4, fill: C('--ink'), 'font-size': 11.5, 'font-weight': 500, 'paint-order': 'stroke', stroke: C('--paper'), 'stroke-width': 3, 'stroke-linejoin': 'round' });
-      t.textContent = name;
-      gSt.appendChild(t);
-    }
-    svg.appendChild(gSt);
-    svg.appendChild(gHit);
-
-    // destination
-    if (st.place) {
-      const cx = X(st.place.lng), cy = Y(st.place.lat);
-      svg.appendChild(mk('circle', { cx, cy, r: 11, fill: C('--red'), stroke: C('--paper'), 'stroke-width': 3 }));
-      svg.appendChild(mk('circle', { cx, cy, r: 3, fill: C('--paper') }));
-      const L = st._destLabel;
-      if (L) {
-        const t = mk('text', { x: L.x, y: L.y, 'text-anchor': L.anchor, fill: C('--red'), 'font-size': 13, 'font-weight': 700, 'paint-order': 'stroke', stroke: C('--paper'), 'stroke-width': 4, 'stroke-linejoin': 'round' });
-        t.textContent = L.text;
-        svg.appendChild(t);
-      }
-    }
-
-    // rank markers
-    const n = Math.min(st.shown, st.results.length);
-    for (let i = n - 1; i >= 0; i--) {
-      const r = st.results[i];
-      const x = X(r.n.lng), y = Y(r.n.lat);
-      if (x < -20 || x > W + 20 || y < -20 || y > H + 20) continue;
-      const sel = i === st.sel;
-      const g = mk('g', { 'data-rank': i, style: 'cursor:pointer' });
-      g.appendChild(mk('circle', { cx: x, cy: y, r: sel ? 13 : 11, fill: sel ? C('--yellow') : C('--ink'), stroke: sel ? C('--ink') : C('--paper'), 'stroke-width': 2 }));
-      const t = mk('text', { x, y: y + 4.5, 'text-anchor': 'middle', fill: sel ? '#111111' : C('--paper'), 'font-size': 13, 'font-weight': 700, 'font-family': 'Jost, sans-serif' });
-      t.textContent = String(i + 1);
-      g.appendChild(t);
-      svg.appendChild(g);
-    }
-
-    // north + scale
-    const sb = niceStep(v.R / 2.5);
-    const sx = 12, sy = H - 14;
-    svg.appendChild(mk('rect', { x: sx - 6, y: sy - 22, width: sb * S + 46, height: 30, fill: C('--paper') }));
-    svg.appendChild(mk('rect', { x: sx, y: sy - 4, width: sb * S, height: 6, fill: C('--ink') }));
-    const tt = mk('text', { x: sx + sb * S + 6, y: sy + 2, fill: C('--ink'), 'font-size': 12, 'font-weight': 500, 'font-family': 'Jost, sans-serif' });
-    tt.textContent = sb >= 1000 ? sb / 1000 + 'km' : sb + 'm';
-    svg.appendChild(tt);
-    const nx = 22, ny = 26;
-    svg.appendChild(mk('polygon', { points: (nx) + ',' + (ny - 16) + ' ' + (nx + 8) + ',' + (ny + 6) + ' ' + (nx - 8) + ',' + (ny + 6), fill: C('--ink') }));
-    const nt = mk('text', { x: nx, y: ny + 22, 'text-anchor': 'middle', fill: C('--ink'), 'font-size': 12, 'font-weight': 700, 'font-family': 'Jost, sans-serif' });
-    nt.textContent = 'N';
-    svg.appendChild(nt);
+  /* ---------- geolocation ---------- */
+  function setGeoUi(state, text) {
+    $('geoState').textContent = text;
+    $('geoBtnText').textContent = state === 'on' ? '내 위치 새로고침' : state === 'busy' ? '위치 찾는 중…' : '내 위치에서 출발';
+    $('geoBtn').disabled = state === 'busy';
   }
-  function niceStep(x) {
-    const p = Math.pow(10, Math.floor(Math.log10(x)));
-    const f = x / p;
-    return (f >= 5 ? 5 : f >= 2 ? 2 : 1) * p;
+  function locate(userAction) {
+    if (!('geolocation' in navigator)) { setGeoUi('off', '이 브라우저는 위치를 지원하지 않습니다.'); return; }
+    setGeoUi('busy', '위치를 확인하는 중입니다.');
+    navigator.geolocation.getCurrentPosition((pos) => {
+      st.origin = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy };
+      store.set(GEO_KEY, true);
+      const far = st.place && !originNear();
+      setGeoUi('on', far ? '내 위치를 찾았습니다. 목적지에서 60km 넘게 떨어져 있어 운전 경로는 구글맵에서 확인하세요.' : '내 위치를 찾았습니다(±' + Math.round(pos.coords.accuracy) + 'm).');
+      drawMe();
+      renderTrip();
+      if (userAction) fitTrip(false);
+    }, (err) => {
+      const denied = err.code === 1;
+      if (denied) store.set(GEO_KEY, false);
+      setGeoUi('off', denied ? '위치 권한이 꺼져 있습니다. 아이폰은 설정 → 개인정보 보호 → 위치 서비스 → Safari 웹 사이트에서 켤 수 있습니다.' : '위치를 찾지 못했습니다. 잠시 후 다시 눌러 주세요.');
+    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
   }
-
-  // pan / tap / wheel
-  (function bindMap() {
-    const svg = $('map');
-    let down = null;
-    svg.addEventListener('pointerdown', (e) => {
-      down = { x: e.clientX, y: e.clientY, lat: st.view.lat, lng: st.view.lng, moved: false, target: e.target, pan: e.pointerType === 'mouse' };
-      if (down.pan) svg.setPointerCapture(e.pointerId);
-    });
-    svg.addEventListener('pointermove', (e) => {
-      if (!down) return;
-      const dx = e.clientX - down.x, dy = e.clientY - down.y;
-      if (!down.moved && Math.hypot(dx, dy) < 6) return;
-      down.moved = true;
-      if (!down.pan) return; // touch: let the page scroll
-      svg.classList.add('drag');
-      const box = $('mapbox'), W = box.clientWidth, H = box.clientHeight;
-      const S = Math.min(W, H) / (2 * st.view.R);
-      st.view.lng = down.lng - dx / S / mLng(st.view.lat);
-      st.view.lat = down.lat + dy / S / M_LAT;
-      drawMap();
-    });
-    const end = (e) => {
-      if (!down) return;
-      svg.classList.remove('drag');
-      if (!down.moved) {
-        const t = down.target.closest ? down.target.closest('[data-rank]') : null;
-        if (t) select(+t.getAttribute('data-rank'), false);
-      }
-      down = null;
-    };
-    svg.addEventListener('pointerup', end);
-    svg.addEventListener('pointercancel', () => { down = null; svg.classList.remove('drag'); });
-    svg.addEventListener('wheel', (e) => { e.preventDefault(); zoom(e.deltaY > 0 ? 1 : -1); }, { passive: false });
-  })();
-  function zoom(dir) {
-    const i = ZOOMS.findIndex((z) => z >= st.view.R);
-    const j = Math.max(0, Math.min(ZOOMS.length - 1, (i < 0 ? ZOOMS.length - 1 : i) + dir));
-    st.view.R = ZOOMS[j];
-    drawMap();
-  }
-  $('zin').addEventListener('click', () => zoom(-1));
-  $('zout').addEventListener('click', () => zoom(1));
-  $('zfit').addEventListener('click', () => { st.autoFit = true; drawMap(); });
-
-  // map placement: under search on phones, right column on desktop
-  const mq = matchMedia('(min-width: 900px)');
-  function placeMap() {
-    const home = $('mapHome');
-    const target = mq.matches ? $('mapCol') : $('mobileMapSlot');
-    if (home.parentElement !== target) target.appendChild(home);
-    $('mapCol').hidden = !mq.matches;
-    drawMap();
-  }
-  mq.addEventListener('change', placeMap);
-  let rT = 0;
-  addEventListener('resize', () => { clearTimeout(rT); rT = setTimeout(drawMap, 80); });
-  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', drawMap);
-  new MutationObserver(drawMap).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  $('geoBtn').addEventListener('click', () => locate(true));
 
   /* ---------- search UI ---------- */
   let cand = [], active = -1;
-  function search(q) {
+  function searchLocal(q) {
     const nq = norm(q);
     if (!nq) return [];
     const nqs = stripSuffix(nq) || nq;
@@ -865,33 +954,63 @@ footer a { text-underline-offset: 2px; }
           else if (fq.length >= 2 && k.includes(fq)) best = Math.max(best, 30);
         }
       }
-      if (best) scored.push({ e, s: best + (e.p.k === 's' ? 6 : 0) + (e.p.ko ? 2 : 0) });
+      if (best) scored.push({ e, s: best + (e.p.k === 's' ? 6 : 0) });
     }
     scored.sort((a, b) => b.s - a.s || a.e.p.ja.length - b.e.p.ja.length);
     return scored.slice(0, 8).map((x) => x.e.p);
   }
-  function showSugg(items, coord) {
+  let webAbort = null;
+  async function searchWeb(q) {
+    if (webAbort) webAbort.abort();
+    webAbort = new AbortController();
+    const sig = webAbort.signal;
+    const gsi = [], osm = [];
+    const tasks = [];
+    if (/[぀-ヿ一-鿿0-9０-９]/.test(q)) {
+      tasks.push(fetch('https://msearch.gsi.go.jp/address-search/AddressSearch?q=' + encodeURIComponent(q), { signal: sig })
+        .then((r) => r.ok ? r.json() : [])
+        .then((arr) => {
+          for (const f of (Array.isArray(arr) ? arr : []).slice(0, 12)) {
+            const c = f && f.geometry && f.geometry.coordinates;
+            if (!c) continue;
+            const p = { lat: +c[1], lng: +c[0] };
+            if (!inTokyo(p) || !/^東京都/.test(String(f.properties && f.properties.title))) continue;
+            gsi.push({ web: true, label: String(f.properties.title).replace(/^東京都/, ''), sub: '주소 · 국토지리원', lat: p.lat, lng: p.lng });
+          }
+        }).catch(() => {}));
+    }
+    tasks.push(fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&bounded=1&viewbox=139.30,35.90,139.95,35.50&accept-language=ko,ja,en&q=' + encodeURIComponent(q), { signal: sig })
+      .then((r) => r.ok ? r.json() : [])
+      .then((arr) => {
+        for (const f of (Array.isArray(arr) ? arr : [])) {
+          const p = { lat: +f.lat, lng: +f.lon };
+          if (!inTokyo(p)) continue;
+          const name = String(f.name || f.display_name || '').trim();
+          osm.push({ web: true, label: name || String(f.display_name), sub: String(f.display_name || '').split(',').slice(1, 4).join(',').trim() + ' · OpenStreetMap', lat: p.lat, lng: p.lng });
+        }
+      }).catch(() => {}));
+    await Promise.all(tasks);
+    if (sig.aborted) return null;
+    const out = [];
+    for (const c of gsi.concat(osm)) {
+      if (out.some((o) => o.label === c.label && straight(o, c) < 300)) continue;
+      out.push(c);
+    }
+    return out.slice(0, 8);
+  }
+  function showSugg(items) {
     const ul = $('sugg');
     ul.textContent = '';
-    cand = [];
-    if (coord) cand.push({ coord: true, label: '좌표 ' + coord.lat.toFixed(5) + ', ' + coord.lng.toFixed(5), sub: '입력한 위치로 찾기', lat: coord.lat, lng: coord.lng });
-    for (const p of items) cand.push(p);
+    cand = items;
     cand.forEach((p, i) => {
       const li = document.createElement('li');
       li.setAttribute('role', 'option');
       li.id = 'opt-' + i;
-      const ic = document.createElement('i');
-      ic.className = 'ic' + (p.coord ? ' c' : p.k === 's' ? '' : ' p');
-      const tx = document.createElement('div');
+      const ic = el('i', 'ic' + (p.coord ? ' c' : p.web ? ' w' : p.k === 's' ? '' : ' p'));
+      const tx = el('div');
       tx.style.minWidth = '0';
-      const b = document.createElement('b');
-      const sm = document.createElement('small');
-      if (p.coord) { b.textContent = p.label; sm.textContent = p.sub; }
-      else {
-        b.textContent = p.ko || p.ja;
-        sm.textContent = [p.ko ? p.ja : '', p.en].filter(Boolean).join(' · ') + (p.k === 's' ? '' : ' · 명소');
-      }
-      tx.append(b, sm);
+      if (p.coord || p.web) tx.append(el('b', '', p.label), el('small', '', p.sub));
+      else tx.append(el('b', '', p.ko || p.ja), el('small', '', [p.ko ? p.ja : '', p.en].filter(Boolean).join(' · ') + (p.k === 's' ? '' : ' · 명소')));
       li.append(ic, tx);
       li.addEventListener('pointerdown', (e) => { e.preventDefault(); choose(i); });
       ul.appendChild(li);
@@ -904,17 +1023,18 @@ footer a { text-underline-offset: 2px; }
   function markActive() {
     [...$('sugg').children].forEach((li, i) => li.setAttribute('aria-selected', String(i === active)));
     $('q').setAttribute('aria-activedescendant', active >= 0 ? 'opt-' + active : '');
-    const el = $('opt-' + active);
-    if (el) el.scrollIntoView({ block: 'nearest' });
+    const o = $('opt-' + active);
+    if (o) o.scrollIntoView({ block: 'nearest' });
   }
   function hideSugg() { $('sugg').hidden = true; $('q').setAttribute('aria-expanded', 'false'); }
   function showMsg(t) { const m = $('msg'); m.textContent = t; m.hidden = !t; }
   function choose(i) {
     const p = cand[i];
     if (!p) return;
-    const place = p.coord
-      ? { label: '지정한 좌표', sub: p.lat.toFixed(5) + ', ' + p.lng.toFixed(5), lat: p.lat, lng: p.lng }
-      : { label: p.ko || p.ja, sub: p.ko ? p.ja : (p.en || ''), lat: p.lat, lng: p.lng };
+    let place;
+    if (p.coord) place = { label: '지정한 좌표', sub: p.lat.toFixed(5) + ', ' + p.lng.toFixed(5), lat: p.lat, lng: p.lng };
+    else if (p.web) place = { label: p.label, sub: p.sub.replace(/ · (OpenStreetMap|국토지리원)$/, ''), lat: p.lat, lng: p.lng };
+    else place = { label: p.ko || p.ja, sub: p.ko ? p.ja : (p.en || ''), lat: p.lat, lng: p.lng };
     setPlace(place, true);
     hideSugg();
     $('q').blur();
@@ -925,54 +1045,69 @@ footer a { text-underline-offset: 2px; }
     if (!v.trim()) { hideSugg(); return; }
     if (/maps\.app\.goo\.gl|goo\.gl\/maps/i.test(v)) {
       hideSugg();
-      showMsg('짧은 구글맵 링크에는 좌표가 들어 있지 않습니다. 구글맵에서 장소를 길게 눌러 나오는 숫자 좌표(예: 35.6586, 139.7454)를 복사해 붙여 넣어 주세요.');
+      showMsg('짧은 구글맵 링크에는 좌표가 들어 있지 않습니다. 구글맵에서 장소를 길게 눌러 나오는 숫자 좌표를 붙여 넣거나, 이 지도를 길게 눌러 고르세요.');
       return;
     }
     const c = parseCoords(v);
     if (c && !inTokyo(c)) { hideSugg(); showMsg('도쿄 밖의 좌표입니다. 경시청 파킹 미터는 도쿄도 안에만 있습니다.'); return; }
-    showSugg(c ? [] : search(v), c);
+    showSugg(c ? [{ coord: true, label: '좌표 ' + c.lat.toFixed(5) + ', ' + c.lng.toFixed(5), sub: '입력한 위치로 찾기', lat: c.lat, lng: c.lng }] : searchLocal(v));
   }
   $('q').addEventListener('input', onInput);
   $('q').addEventListener('focus', () => { if ($('q').value.trim() && $('q').value !== (st.place && st.place.label)) onInput(); });
-  $('q').addEventListener('blur', () => setTimeout(hideSugg, 120));
+  $('q').addEventListener('blur', () => setTimeout(hideSugg, 150));
   $('q').addEventListener('keydown', (e) => {
     if ($('sugg').hidden) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); active = Math.min(cand.length - 1, active + 1); markActive(); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); active = Math.max(0, active - 1); markActive(); }
-    else if (e.key === 'Escape') { hideSugg(); }
+    else if (e.key === 'Escape') hideSugg();
   });
-  $('form').addEventListener('submit', (e) => {
+  $('form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const v = $('q').value;
-    if (!v.trim()) return;
+    const v = $('q').value.trim();
+    if (!v) return;
     if (!$('sugg').hidden && active >= 0) { choose(active); return; }
     onInput();
-    if (cand.length) choose(0);
-    else if ($('msg').hidden) showMsg('‘' + v.trim() + '’을(를) 찾지 못했습니다. 역 이름(예: 시부야, 新宿)이나 구글맵 좌표로 다시 찾아 보세요.');
+    if (cand.length && !$('sugg').hidden) { choose(0); return; }
+    if (!$('msg').hidden) return;
+    showMsg('');
+    $('hint').textContent = '‘' + v + '’을(를) 지도 검색에서 찾는 중…';
+    const res = await searchWeb(v);
+    if (res === null) return;
+    restoreHint();
+    if (res.length) { showSugg(res); $('q').focus(); }
+    else showMsg('‘' + v + '’을(를) 찾지 못했습니다. 역 이름, 일본어 주소(예: 銀座4丁目), 좌표로 찾거나 지도를 길게 눌러 고르세요.');
   });
 
+  function restoreHint() {
+    $('hint').textContent = st.place === DEFAULT_PLACE
+      ? '지금은 예시 목적지(긴자역)입니다. 역·명소·주소를 넣거나 지도를 길게 눌러 고르세요.'
+      : '목적지: ' + st.place.label + (st.place.sub ? ' · ' + st.place.sub : '');
+  }
   function setPlace(p, save) {
     st.place = p;
     $('q').value = p.label;
-    $('hint').textContent = p.sub ? '목적지: ' + p.label + ' · ' + p.sub : '목적지: ' + p.label;
-    if (save) saveStored(p);
-    refresh();
+    if (save) store.set(STORE_KEY, p);
+    restoreHint();
+    refresh(true);
   }
   function setDay(s) {
     st.day = dayInfo(s);
     $('date').value = s;
     renderDay();
-    refresh();
+    if (zoneLines.length) styleZones();
+    refresh(true);
   }
-  function refresh() {
+  function refresh(fit) {
     if (!st.place || !st.day || !st.zones.length) return;
     compute();
     renderList();
-    drawMap();
+    drawMarkers();
+    renderTrip();
+    if (fit) fitTrip(false);
   }
   $('date').addEventListener('change', () => { if ($('date').value) setDay($('date').value); });
   $('jump').addEventListener('click', () => setDay($('jump').dataset.to));
-  $('more').addEventListener('click', () => { st.shown = Math.min(st.shown + PAGE, 20); renderList(); drawMap(); });
+  $('more').addEventListener('click', () => { st.shown = Math.min(st.shown + PAGE, 30); renderList(); drawMarkers(); renderTrip(); });
 
   /* ---------- boot ---------- */
   async function boot() {
@@ -981,13 +1116,12 @@ footer a { text-underline-offset: 2px; }
     st.day = (t.kind === 'holiday' || t.kind === 'newyear') ? t : nextFreeDay(today);
     $('date').value = st.day.s;
     renderDay();
-    if (st.day.s !== today) {
-      $('stateSub').textContent = '오늘(' + t.text + ')은 ' + (t.kind === 'sat' ? '토요일' : '평일') + '이라 다음 휴일 기준입니다. ' + $('stateSub').textContent;
-    }
+    if (st.day.s !== today) $('stateSub').textContent = '오늘(' + t.text + ')은 ' + (t.kind === 'sat' ? '토요일' : '평일') + '이라 다음 휴일 기준입니다. ' + $('stateSub').textContent;
     st.place = loadStored() || DEFAULT_PLACE;
     $('q').value = st.place.label;
-    $('hint').textContent = st.place === DEFAULT_PLACE ? '지금은 예시 목적지(긴자역)입니다. 역·명소 이름이나 구글맵 좌표를 넣어 보세요.' : '목적지: ' + st.place.label + (st.place.sub ? ' · ' + st.place.sub : '');
+    restoreHint();
     placeMap();
+    map.setView([st.place.lat, st.place.lng], 16);
     try {
       const zr = await fetch('zones.json');
       if (!zr.ok) throw new Error('zones ' + zr.status);
@@ -996,7 +1130,15 @@ footer a { text-underline-offset: 2px; }
       showMsg('주차 구간 데이터를 불러오지 못했습니다. 새로고침해 주세요.');
       return;
     }
-    refresh();
+    buildZones();
+    refresh(true);
+    // reuse location if the visitor allowed it before
+    if (store.get(GEO_KEY) === true) {
+      try {
+        const ps = navigator.permissions ? await navigator.permissions.query({ name: 'geolocation' }) : null;
+        if (!ps || ps.state === 'granted') locate(false);
+      } catch (e) { /* permissions API missing */ }
+    }
     try {
       const pr = await fetch('places.json');
       if (!pr.ok) throw new Error('places ' + pr.status);
@@ -1004,17 +1146,14 @@ footer a { text-underline-offset: 2px; }
       st.places = pj.places.map((r) => ({ ja: r[0], ko: r[1], en: r[2], kana: r[3], lat: r[4], lng: r[5], k: r[6] }));
       st.index = st.places.map((p) => {
         const keys = [p.ja, p.ko, p.en, p.kana].filter(Boolean).map((s) => stripSuffix(norm(s.replace(/\s*[(（].*?[)）]\s*/g, ''))) || norm(s));
-        if (p.en) keys.push(norm(p.en).replace(/(station)$/, ''));
         return { p, keys: [...new Set(keys)], fkeys: p.ko ? [foldHangul(stripSuffix(norm(p.ko)))] : [] };
       });
-      drawMap();
     } catch (e) {
-      $('hint').textContent = '역·명소 목록을 불러오지 못했습니다. 구글맵 좌표(예: 35.6586, 139.7454)로 찾을 수 있습니다.';
+      $('hint').textContent = '역·명소 목록을 불러오지 못했습니다. 주소·좌표 검색이나 지도 길게 누르기로 고를 수 있습니다.';
     }
   }
   boot();
 })();
 </script>
-
 </body>
 </html>
