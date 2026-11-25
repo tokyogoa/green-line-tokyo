@@ -159,6 +159,14 @@ button { font-family: inherit; color: inherit; }
 .warn summary::after { content: " +"; }
 .warn[open] summary::after { content: " −"; }
 .warn p { margin: 6px 0 0; }
+.signs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+.sg { background: #fff; color: #111; border: 2px solid #111; padding: 4px 2px 6px; text-align: center; min-width: 0; }
+.sg svg { display: block; width: 100%; height: auto; max-width: 110px; margin: 0 auto; }
+.sg b { display: block; margin-top: 4px; font-size: 13px; }
+.sg b.ok { color: #1f8f3a; }
+.sg b.ng { color: #d7301b; }
+.sg span { display: block; font-size: 11.5px; line-height: 1.35; padding: 0 3px; }
+.warn .rule { margin-top: 8px; font-size: 12.5px; }
 
 .start h2 { margin: 2px 0 6px; font: 700 26px/1.2 var(--font-body); text-wrap: balance; }
 .start p { margin: 0 0 12px; color: var(--mute); font-size: 14px; }
@@ -685,10 +693,7 @@ button { font-family: inherit; color: inherit; }
     pager.append(nav);
     more.append(pager);
 
-    const warn = el('details', 'warn');
-    warn.append(el('summary', '', '駐車禁止 표지가 같이 있으면 세울 수 없어요'));
-    warn.append(el('p', '', '녹색 구간은 경시청 지도에서 일요일·공휴일에 미터를 쓰지 않는 구간입니다. 그날 세워도 되는지는 현장 표지가 정합니다. 駐車禁止(주차금지) 표지가 함께 있으면 그 시간엔 불가합니다. 같은 자리에 낮 12시간·밤 8시간 넘게 세우면 차고법 위반입니다.'));
-    more.append(warn);
+    more.append(signGuide());
     const cr = el('p', 'credits');
     cr.innerHTML = '주차 구간: 경시청 <a href="https://parking-meter.jp/" target="_blank" rel="noopener noreferrer">時間制限駐車区間 案内地図</a>(2026-11-23 받음). 지도: <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener noreferrer">地理院タイル</a>. 경로: <a href="https://routing.openstreetmap.de/" target="_blank" rel="noopener noreferrer">FOSSGIS OSRM</a>, © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>. 장소: Wikidata, Nominatim, 국토지리원.';
     more.append(cr);
@@ -696,6 +701,42 @@ button { font-family: inherit; color: inherit; }
     syncSheet();
   }
   $('grab').addEventListener('click', () => { $('sheet').classList.toggle('min'); syncSheet(); });
+
+  /* ---------- sign guide (original drawings of the standard Japanese road signs) ---------- */
+  const SG_POLE = '<rect x="46" y="8" width="8" height="182" fill="#8a8f96"/>';
+  const SG_TIMED = (y) => '<g transform="translate(22 ' + y + ')"><rect width="56" height="64" fill="#1d5fb6" stroke="#fff" stroke-width="2"/>' +
+    '<text x="28" y="13" text-anchor="middle" font-size="11" font-weight="700" fill="#fff" font-family="Jost,sans-serif">9-19</text>' +
+    '<text x="28" y="44" text-anchor="middle" font-size="30" font-weight="700" fill="#fff" font-family="Jost,sans-serif">P</text>' +
+    '<text x="28" y="59" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">60分</text></g>';
+  const SG_SUB = (y, txt) => '<g transform="translate(8 ' + y + ')"><rect width="84" height="20" fill="#fff" stroke="#1d5fb6" stroke-width="2"/>' +
+    '<text x="42" y="14" text-anchor="middle" font-size="9.5" font-weight="700" fill="#1d5fb6">' + txt + '</text></g>';
+  const SG_NOPARK = (y) => '<g transform="translate(50 ' + y + ')"><circle r="27" fill="#1d5fb6" stroke="#d7301b" stroke-width="7"/>' +
+    '<line x1="-17" y1="-17" x2="17" y2="17" stroke="#d7301b" stroke-width="7"/></g>';
+  const SG_X = '<g transform="translate(78 14)"><circle r="13" fill="#d7301b"/><path d="M-6 -6L6 6M6 -6L-6 6" stroke="#fff" stroke-width="3.5"/></g>';
+  const SG_OK = '<g transform="translate(78 14)"><circle r="13" fill="#1f8f3a"/><path d="M-6 0L-2 5L7 -5" fill="none" stroke="#fff" stroke-width="3.5"/></g>';
+  const svg = (inner, label) => '<svg viewBox="0 0 100 196" role="img" aria-label="' + label + '">' + inner + '</svg>';
+  function signGuide() {
+    const box = el('details', 'warn');
+    box.open = true;
+    box.append(el('summary', '', '도착하면 이 표지를 보세요'));
+    const grid = el('div', 'signs');
+    const card = (art, cls, verdict, text) => {
+      const c = el('figure', 'sg');
+      c.style.margin = '0';
+      c.insertAdjacentHTML('afterbegin', art);
+      c.append(el('b', cls, verdict), el('span', '', text));
+      grid.append(c);
+    };
+    card(svg(SG_POLE + SG_TIMED(30) + SG_SUB(98, '日曜・休日を除く') + SG_OK, '세워도 되는 표지 조합'), 'ok', '세울 수 있음',
+      'P 아래 「日曜・休日を除く」 → 휴일엔 미터가 쉼');
+    card(svg(SG_POLE + SG_NOPARK(40) + SG_TIMED(74) + SG_SUB(142, '日曜・休日を除く') + SG_X, '세우면 안 되는 표지 조합'), 'ng', '세우면 안 됨',
+      '빨간 사선 원(駐車禁止)이 같이 있으면 주차금지');
+    card(svg(SG_POLE + SG_TIMED(30) + SG_X, '휴일에도 유료인 표지'), 'ng', '휴일도 유료',
+      '「日曜・休日を除く」가 없으면 휴일에도 요금');
+    box.append(grid);
+    box.append(el('p', 'rule', '숫자(예: 9-19)는 미터를 쓰는 시간, 60分은 최대 주차 시간입니다. 같은 자리에 낮 12시간·밤 8시간 넘게 세우면 차고법 위반입니다.'));
+    return box;
+  }
 
   /* ---------- my location ---------- */
   function locate(userAction, asDestination) {
